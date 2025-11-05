@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration - RunPod Monitor{% endblock %}
+
+{% block header %}Configuration{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <!-- Unsaved Changes Alert -->
+        <div id="unsaved-changes-alert" class="alert alert-warning" style="display: none;">
+            <strong>⚠️ Unsaved Changes!</strong> You have unsaved changes. Click "Save Settings" to apply them.
+        </div>
+        
+        <!-- No-Change Detection Warning -->
+        <div id="no-change-detection-warning" class="alert alert-danger" style="display: none;">
+            <strong>🚨 No-Change Detection Changed!</strong> 
+            <span id="no-change-warning-text"></span>
+            <strong>Click "Save Settings" to apply this change.</strong>
+        </div>
+
+        <!-- Main Configuration Form -->
+        <form hx-post="/config/auto-stop" hx-target="#config-result" hx-trigger="submit" id="basic-autostop">
+            
+            <!-- Main Settings Card -->
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h5 class="mb-0">⚙️ Auto-Stop Configuration</h5>
+                </div>
+                <div class="card-body">
+                    
+                    <!-- Mode Selection -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="enabled" name="enabled" 
+                                       {% if config.auto_stop.enabled %}checked{% endif %}>
+                                <label class="form-check-label" for="enabled">
+                                    <strong>✅ Enable Auto-Stop</strong>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <!-- DEBUG: Template values -->
+                            <!-- config.auto_stop.monitor_only = {{ config.auto_stop.monitor_only if config and config.auto_stop else 'UNDEFINED' }} -->
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="monitor_only" name="monitor_only" 
+                                       {% if config and config.auto_stop and config.auto_stop.monitor_only %}checked{% endif %}>
+                                <label class="form-check-label" for="monitor_only">
+                                    <strong>🔍 Monitor-Only Mode</strong>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Dynamic Status Info -->
+                    <div class="alert mb-4" id="status-info-card">
+                        {% if config.auto_stop.enabled %}
+                            <div class="alert-danger">
+                                <strong>⚡ Auto-Stop Active</strong><br>
+                                <small>Pods will be monitored and <strong>automatically stopped</strong> when they meet stop criteria ({{ config.auto_stop.thresholds.max_cpu_percent }}% CPU, {{ config.auto_stop.thresholds.max_gpu_percent }}% GPU, {{ config.auto_stop.thresholds.max_memory_percent }}% Memory for {{ (config.auto_stop.thresholds.duration // 60) }} minutes).</small>
+                            </div>
+                        {% elif config.auto_stop.monitor_only %}
+                            <div class="alert-warning">
+                                <strong>🔍 Monitor-Only Mode Active</strong><br>
+                                <small>Pods will be tracked and alerts shown when they meet stop criteria ({{ config.auto_stop.thresholds.max_cpu_percent }}% CPU, {{ config.auto_stop.thresholds.max_gpu_percent }}% GPU, {{ config.auto_stop.thresholds.max_memory_percent }}% Memory for {{ (config.auto_stop.thresholds.duration // 60) }} minutes), but <strong>no pods will be automatically stopped</strong>.</small>
+                            </div>
+                        {% else %}
+                            <div class="alert-secondary">
+                                <strong>💤 All Monitoring Disabled</strong><br>
+                                <small>No pod monitoring, alerts, or automatic actions will occur.</small>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Thresholds -->
+                    <h6 class="mb-3">📊 Usage Thresholds</h6>
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <label for="max_cpu" class="form-label">CPU % (≤)</label>
+                            <input type="number" class="form-control" id="max_cpu" name="max_cpu" 
+                                   value="{{ config.auto_stop.thresholds.max_cpu_percent }}" min="0" max="100">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="max_gpu" class="form-label">GPU % (≤)</label>
+                            <input type="number" class="form-control" id="max_gpu" name="max_gpu" 
+                                   value="{{ config.auto_stop.thresholds.max_gpu_percent }}" min="0" max="100">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="max_memory" class="form-label">Memory % (≤)</label>
+                            <input type="number" class="form-control" id="max_memory" name="max_memory" 
+                                   value="{{ config.auto_stop.thresholds.max_memory_percent }}" min="0" max="100">
+                        </div>
+                    </div>
+
+                    <!-- Duration -->
+                    <h6 class="mb-3">⏱️ Duration</h6>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <label for="duration" class="form-label">Persistent Duration (seconds)</label>
+                            <input type="number" class="form-control" id="duration" name="duration" 
+                                   value="{{ config.auto_stop.thresholds.duration }}" min="60"
+                                   oninput="updateDurationDisplay(this.value)">
+                            <div class="form-text">How long ALL thresholds must be met continuously</div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mt-4 pt-2">
+                                <span class="badge bg-info" id="duration-display">
+                                    {{ (config.auto_stop.thresholds.duration // 60) }} minutes
+                                    {% if (config.auto_stop.thresholds.duration // 3600) > 0 %}
+                                        ({{ (config.auto_stop.thresholds.duration // 3600) }}h {{ ((config.auto_stop.thresholds.duration % 3600) // 60) }}m)
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Save Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            💾 Save Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Advanced Settings Collapsible -->
+            <div class="card">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <button class="btn btn-link text-decoration-none p-0 text-start w-100" type="button" 
+                                data-bs-toggle="collapse" data-bs-target="#advancedSettings" 
+                                aria-expanded="false" aria-controls="advancedSettings">
+                            <span class="float-end">▼</span>
+                            🔍 Advanced: No-Change Detection
+                        </button>
+                    </h6>
+                </div>
+                <div id="advancedSettings" class="collapse">
+                    <div class="card-body">
+                        <div class="alert alert-warning mb-3">
+                            <small><strong>Alternative detection:</strong> Stop pods if metrics don't change at all (complete inactivity)</small>
+                        </div>
+                        
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="detect_no_change" name="detect_no_change" 
+                                   {% if config.auto_stop.thresholds.detect_no_change %}checked{% endif %}>
+                            <label class="form-check-label" for="detect_no_change">
+                                <strong>Enable No-Change Detection</strong>
+                            </label>
+                        </div>
+                        
+                        <div class="alert alert-danger">
+                            <strong>⚠️ Warning:</strong> May stop pods with sustained workloads (training, rendering) if metrics don't vary.
+                        </div>
+                    </div>
+                </div>
+            </div>
+                    
+        </form>
+        
+        <div id="config-result" class="mt-3"></div>
+    </div>
+
+    <div class="col-lg-4">
+        <!-- Status Overview -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">📊 Current Status</h6>
+            </div>
+            <div class="card-body" id="status-overview">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Auto-Stop:</span>
+                    {% if config.auto_stop.enabled %}
+                        <span class="badge bg-success">✅ Enabled</span>
+                    {% else %}
+                        <span class="badge bg-secondary">❌ Disabled</span>
+                    {% endif %}
+                </div>
+                
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>Monitor-Only:</span>
+                    {% if config.auto_stop.monitor_only %}
+                        <span class="badge bg-warning">🔍 On</span>
+                    {% else %}
+                        <span class="badge bg-secondary">❌ Off</span>
+                    {% endif %}
+                </div>
+                
+                <div class="d-flex justify-content-between align-items-center">
+                    <span>No-Change:</span>
+                    {% if config.auto_stop.thresholds.detect_no_change %}
+                        <span class="badge bg-success">✅ On</span>
+                    {% else %}
+                        <span class="badge bg-secondary">❌ Off</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Current Settings -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">⚙️ Settings</h6>
+            </div>
+            <div class="card-body" id="settings-card-body">
+                <div class="row text-center mb-3">
+                    <div class="col-4">
+                        <div class="fw-bold">{{ config.auto_stop.thresholds.max_cpu_percent }}%</div>
+                        <small class="text-muted">CPU</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="fw-bold">{{ config.auto_stop.thresholds.max_gpu_percent }}%</div>
+                        <small class="text-muted">GPU</small>
+                    </div>
+                    <div class="col-4">
+                        <div class="fw-bold">{{ config.auto_stop.thresholds.max_memory_percent }}%</div>
+                        <small class="text-muted">Memory</small>
+                    </div>
+                </div>
+                
+                <div class="text-center">
+                    <div class="fw-bold">{{ (config.auto_stop.thresholds.duration // 60) }} minutes</div>
+                    <small class="text-muted">Duration</small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Data Collection Info -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">📊 Data Collection</h6>
+            </div>
+            <div class="card-body">
+                <small class="text-muted">
+                    • Every 60 seconds<br>
+                    • {{ (24 * 60) }} points/day<br>
+                    • Smart window: {{ (([3600, (config.auto_stop.thresholds.duration * 1.5)|int] | max) // 60) }} min history
+                </small>
+            </div>
+        </div>
+        
+        <!-- Excluded Pods -->
+        {% if config.auto_stop.exclude_pods %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <h6 class="mb-0">🛡️ Excluded Pods</h6>
+            </div>
+            <div class="card-body">
+                {% for pod in config.auto_stop.exclude_pods %}
+                    <span class="badge bg-secondary me-1 mb-1">{{ pod[:8] }}...</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Data Retention Configuration -->
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">🗄️ Data Retention Policy</h6>
+            </div>
+            <div class="card-body">
+                <form hx-post="/config/retention" hx-target="#retention-result">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="retention_value" class="form-label">Keep Data For</label>
+                            <input type="number" class="form-control" id="retention_value" name="retention_value" 
+                                   value="{% if config.storage and config.storage.retention_policy and config.storage.retention_policy.unit == 'forever' %}999{% else %}{{ config.storage.retention_policy.value if config.storage and config.storage.retention_policy else 1 }}{% endif %}"
+                                   min="1" max="999" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="retention_unit" class="form-label">Unit</label>
+                            <select class="form-control" id="retention_unit" name="retention_unit">
+                                <option value="hours" {% if config.storage and config.storage.retention_policy and config.storage.retention_policy.unit == 'hours' %}selected{% endif %}>Hours</option>
+                                <option value="days" {% if config.storage and config.storage.retention_policy and config.storage.retention_policy.unit == 'days' %}selected{% endif %}>Days</option>
+                                <option value="weeks" {% if config.storage and config.storage.retention_policy and config.storage.retention_policy.unit == 'weeks' %}selected{% endif %}>Weeks</option>
+                                <option value="months" {% if config.storage and config.storage.retention_policy and config.storage.retention_policy.unit == 'months' %}selected{% endif %}>Months</option>
+                                <option value="years" {% if not config.storage or not config.storage.retention_policy or config.storage.retention_policy.unit == 'forever' or config.storage.retention_policy.unit == 'years' %}selected{% endif %}>Years</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-sm btn-primary">💾 Update Retention</button>
+                    </div>
+                    <div class="mt-2">
+                        <small class="text-muted" id="current-retention-display">
+                            Current: 
+                            {% if config.storage and config.storage.retention_policy and config.storage.retention_policy.unit == 'forever' %}
+                                999 years
+                            {% else %}
+                                {{ config.storage.retention_policy.value if config.storage and config.storage.retention_policy else 1 }} 
+                                {{ config.storage.retention_policy.unit if config.storage and config.storage.retention_policy else 'days' }}
+                            {% endif %}
+                        </small>
+                    </div>
+                </form>
+                <div id="retention-result" class="mt-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateDurationDisplay(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const remainingMinutes = Math.floor((seconds % 3600) / 60);
+    
+    let display = `${minutes} minutes`;
+    if (hours > 0) {
+        display = `${hours}h ${remainingMinutes}m`;
+    }
+    
+    document.getElementById('duration-display').innerHTML = display;
+}
+
+
+function updateSamplingDisplay(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const remainingMinutes = Math.floor((seconds % 3600) / 60);
+    
+    let display = `= ${minutes} minutes`;
+    if (hours > 0) {
+        display += ` (${hours} hours ${remainingMinutes} minutes)`;
+    }
+    
+    const dailyPoints = Math.floor((24 * 3600) / seconds);
+    display += ` (${dailyPoints} data points/day)`;
+    
+    document.getElementById('sampling-display').innerHTML = display;
+}
+
+function updateWindowDisplay(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const remainingMinutes = Math.floor((seconds % 3600) / 60);
+    
+    let display = `= ${minutes} minutes`;
+    if (hours > 0) {
+        display += ` (${hours} hours ${remainingMinutes} minutes)`;
+    }
+    
+    document.getElementById('window-display').innerHTML = display;
+}
+
+// Form change tracking and save feedback
+let hasUnsavedChanges = false;
+let originalValues = {};
+
+function showUnsavedChanges() {
+    hasUnsavedChanges = true;
+    document.getElementById('unsaved-changes-alert').style.display = 'block';
+}
+
+function hideUnsavedChanges() {
+    hasUnsavedChanges = false;
+    document.getElementById('unsaved-changes-alert').style.display = 'none';
+}
+
+function showNoChangeDetectionWarning(isEnabled) {
+    const warningElement = document.getElementById('no-change-detection-warning');
+    const textElement = document.getElementById('no-change-warning-text');
+    
+    if (isEnabled) {
+        textElement.textContent = 'You are ENABLING aggressive auto-stop detection. This may stop pods unexpectedly! ';
+    } else {
+        textElement.textContent = 'You are DISABLING no-change detection. ';
+    }
+    
+    warningElement.style.display = 'block';
+    
+    // Scroll to the warning to make sure it's visible
+    warningElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideNoChangeDetectionWarning() {
+    document.getElementById('no-change-detection-warning').style.display = 'none';
+}
+
+function trackFormChanges() {
+    // Get all form inputs
+    const forms = ['basic-autostop'];
+    
+    forms.forEach(formId => {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        
+        const inputs = form.querySelectorAll('input, select, textarea');
+        
+        inputs.forEach(input => {
+            // Store original values
+            originalValues[input.name] = input.type === 'checkbox' ? input.checked : input.value;
+            
+            // Track changes
+            input.addEventListener('change', function() {
+                const currentValue = input.type === 'checkbox' ? input.checked : input.value;
+                const originalValue = originalValues[input.name];
+                
+                if (currentValue !== originalValue) {
+                    showUnsavedChanges();
+                    
+                    // Special warning for No-Change Detection toggle
+                    if (input.name === 'detect_no_change') {
+                        showNoChangeDetectionWarning(currentValue);
+                    }
+                } else {
+                    // Check if any other inputs have changes
+                    let anyChanges = false;
+                    inputs.forEach(otherInput => {
+                        const otherCurrent = otherInput.type === 'checkbox' ? otherInput.checked : otherInput.value;
+                        const otherOriginal = originalValues[otherInput.name];
+                        if (otherCurrent !== otherOriginal) {
+                            anyChanges = true;
+                        }
+                    });
+                    if (!anyChanges) {
+                        hideUnsavedChanges();
+                        hideNoChangeDetectionWarning();
+                    }
+                }
+            });
+        });
+    });
+}
+
+// Handle successful form submissions
+document.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'config-result') {
+        // Hide unsaved changes alert after successful save
+        hideUnsavedChanges();
+        hideNoChangeDetectionWarning();
+        
+        // Update original values to current values
+        const forms = ['basic-autostop'];
+        forms.forEach(formId => {
+            const form = document.getElementById(formId);
+            if (!form) return;
+            
+            const inputs = form.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                originalValues[input.name] = input.type === 'checkbox' ? input.checked : input.value;
+            });
+        });
+        
+        // Add success animation to save button
+        const button = evt.detail.elt.querySelector('button[type="submit"]');
+        if (button) {
+            const originalText = button.innerHTML;
+            button.innerHTML = '✅ Saved!';
+            button.classList.add('btn-success');
+            button.classList.remove('btn-primary');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('btn-success');
+                button.classList.add('btn-primary');
+            }, 2000);
+        }
+    }
+});
+
+// Setup toggle logic for mutually exclusive behavior
+function setupToggleLogic() {
+    const enabledCheckbox = document.getElementById('enabled');
+    const monitorOnlyCheckbox = document.getElementById('monitor_only');
+    
+    // Make them mutually exclusive
+    enabledCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            monitorOnlyCheckbox.checked = false;
+        }
+        updateStatusCard();
+    });
+    
+    monitorOnlyCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            enabledCheckbox.checked = false;
+        }
+        updateStatusCard();
+    });
+    
+    function updateStatusCard() {
+        const enabled = enabledCheckbox.checked;
+        const monitorOnly = monitorOnlyCheckbox.checked;
+        const statusCard = document.getElementById('status-info-card');
+        
+        let content = '';
+        
+        if (enabled) {
+            content = `
+                <div class="alert-danger">
+                    <strong>⚡ Auto-Stop Active</strong><br>
+                    <small>Pods will be monitored and <strong>automatically stopped</strong> when they meet stop criteria.</small>
+                </div>
+            `;
+        } else if (monitorOnly) {
+            content = `
+                <div class="alert-warning">
+                    <strong>🔍 Monitor-Only Mode Active</strong><br>
+                    <small>Pods will be tracked and alerts shown when they meet stop criteria, but <strong>no pods will be automatically stopped</strong>.</small>
+                </div>
+            `;
+        } else {
+            content = `
+                <div class="alert-secondary">
+                    <strong>💤 All Monitoring Disabled</strong><br>
+                    <small>No pod monitoring, alerts, or automatic actions will occur.</small>
+                </div>
+            `;
+        }
+        
+        statusCard.innerHTML = content;
+    }
+}
+
+// Simple retention form - no special handling needed
+
+
+// Initialize tracking when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Debug checkbox states on page load
+    const enabledCheckbox = document.getElementById('enabled');
+    const monitorOnlyCheckbox = document.getElementById('monitor_only');
+    
+    console.log('🔄 Config page loaded');
+    console.log('📋 Initial checkbox states:');
+    console.log(`  - Enable Auto-Stop: ${enabledCheckbox.checked}`);
+    console.log(`  - Monitor-Only Mode: ${monitorOnlyCheckbox.checked}`);
+    
+    // Check if template values match expectations
+    console.log('📋 Expected from config:');
+    console.log('  - Enable Auto-Stop: false (unchecked)');
+    console.log('  - Monitor-Only Mode: true (checked)');
+    
+    trackFormChanges();
+    setupToggleLogic();
+});
+</script>
+{% endblock %}

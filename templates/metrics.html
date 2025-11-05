@@ -1,0 +1,931 @@
+{% extends "base.html" %}
+
+{% block title %}Metrics - RunPod Monitor{% endblock %}
+
+{% block header %}Metrics History{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="alert alert-info" role="alert" id="metrics-status">
+            <strong>📊 Active Pod Metrics as of {{ current_time }}</strong> - 
+            {{ total_active_pods }} active pods found, {{ pods_with_metrics }} have metrics data. Inactive pods are automatically cleaned up.
+            
+            <div class="mt-2 d-flex align-items-center" id="monitoring-status" hx-get="/api/monitoring-status" hx-trigger="every 5s" hx-target="this" hx-swap="outerHTML">
+                <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <small class="text-muted">Checking monitoring status...</small>
+            </div>
+            
+            <!-- Next Collection Info -->
+            <div class="mt-3" id="next-collection-info">
+                <small class="text-muted" id="next-collection-text">Loading collection status...</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Active Pod Statistics -->
+{% if summaries %}
+<div class="row mt-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">📈 Active Pod Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-2">
+                        <div class="card border-0">
+                            <div class="card-body">
+                                <h4 class="text-primary">{{ total_active_pods }}</h4>
+                                <p class="card-text">Active Pods</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card border-0">
+                            <div class="card-body">
+                                <h4 class="text-success">{{ running_pods_count }}</h4>
+                                <p class="card-text">Running</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card border-0">
+                            <div class="card-body">
+                                <h4 class="text-secondary">{{ excluded_pods_count }}</h4>
+                                <p class="card-text">Excluded Pods</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card border-0">
+                            <div class="card-body">
+                                <h4 class="text-info">{{ summaries | map(attribute='total_data_points') | sum }}</h4>
+                                <p class="card-text">Data Points</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card border-0">
+                            <div class="card-body">
+                                {% set avg_cpu = (summaries | map(attribute='hourly_averages.cpu_percent') | sum) / (summaries | length) if summaries else 0 %}
+                                <h4 class="text-warning">{{ "%.1f"|format(avg_cpu) }}%</h4>
+                                <p class="card-text">Avg CPU</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="card border-0">
+                            <div class="card-body">
+                                <h4 class="text-muted">{{ total_active_pods }}</h4>
+                                <p class="card-text">Total Pods</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Excluded Pods Details -->
+                {% if excluded_pods %}
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <div class="alert alert-light">
+                            <h6 class="mb-2">🛡️ Excluded Pods (No Data Collection):</h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for pod in excluded_pods %}
+                                    <span class="badge bg-secondary" title="Pod ID: {{ pod.id }}">
+                                        {{ pod.name }} 
+                                        <small class="text-light">({{ pod.status }})</small>
+                                    </span>
+                                {% endfor %}
+                            </div>
+                            <small class="text-muted d-block mt-2">
+                                These pods are protected from auto-stop and have no metrics collected.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Auto-Stop Predictions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">⚠️ Auto-Stop Predictions</h5>
+                <small class="text-muted">
+                    {% if config.auto_stop.monitor_only %}
+                        🔍 Monitor-Only Mode: Pods that would be stopped (no actual stopping)
+                    {% else %}
+                        Pods approaching auto-stop thresholds
+                    {% endif %}
+                </small>
+            </div>
+            <div class="card-body">
+                <div id="auto-stop-predictions" hx-get="/api/auto-stop-predictions" hx-trigger="load, every 20s" hx-swap="innerHTML">
+                    <p>Loading predictions...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Raw Data Section -->
+<div class="row mt-5">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div>
+                        <h5 class="mb-0">📋 Raw Data Points</h5>
+                        <small class="text-muted">Click a pod to filter data</small>
+                    </div>
+                    <div class="btn-group" role="group">
+                        <input type="radio" class="btn-check" name="viewMode" id="tableView" autocomplete="off" checked>
+                        <label class="btn btn-outline-primary btn-sm" for="tableView">📊 Table</label>
+                        
+                        <input type="radio" class="btn-check" name="viewMode" id="graphView" autocomplete="off">
+                        <label class="btn btn-outline-primary btn-sm" for="graphView">📈 Graph</label>
+                    </div>
+                </div>
+                
+                <!-- Time Filtering and Export Controls -->
+                <div class="row">
+                    <div class="col-md-4">
+                        <label for="time-filter-select" class="form-label small">📅 Time Range Filter</label>
+                        <select id="time-filter-select" class="form-select form-select-sm">
+                            <option value="3600">Last Hour</option>
+                            <option value="14400">Last 4 Hours</option>
+                            <option value="86400" selected>Last 24 Hours</option>
+                            <option value="604800">Last Week</option>
+                            <option value="2592000">Last Month</option>
+                            <option value="all">All Available Data</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="pod-filter-select" class="form-label small">🎯 Pod Filter</label>
+                        <select id="pod-filter-select" class="form-select form-select-sm">
+                            <option value="">All Pods</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">💾 Backup Data</label>
+                        <button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="exportData()">
+                            📦 Download ZIP Backup
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- Table View -->
+                <div id="table-view-container">
+                    <div id="raw-data-table" hx-get="/api/raw-data" hx-trigger="load, every 15s" hx-swap="innerHTML">
+                        <p>Loading raw data...</p>
+                    </div>
+                </div>
+                
+                <!-- Graph View -->
+                <div id="graph-view-container" style="display: none;">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <select id="pod-selector" class="form-select form-select-sm">
+                                <option value="">Select a pod to view graph...</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select id="time-range" class="form-select form-select-sm">
+                                <option value="3600">Last Hour</option>
+                                <option value="14400">Last 4 Hours</option>
+                                <option value="86400">Last 24 Hours</option>
+                                <option value="604800">Last Week</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select id="data-resolution" class="form-select form-select-sm">
+                                <option value="30min" selected>30-Minute Avg</option>
+                                <option value="raw">Raw Data</option>
+                                <option value="1hour">Hourly Avg</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button id="show-all-pods" class="btn btn-outline-primary btn-sm w-100">
+                                📊 Show All Pods
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Single Chart Container -->
+                    <div id="single-chart-container" style="height: 400px;">
+                        <canvas id="metricsChart"></canvas>
+                    </div>
+                    
+                    <!-- All Pods Charts Container -->
+                    <div id="all-charts-container" style="display: none;">
+                        <!-- Charts will be dynamically generated here -->
+                    </div>
+                    
+                    <div id="chart-loading" class="text-center mt-3" style="display: none;">
+                        <div class="spinner-border spinner-border-sm" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span class="ms-2">Loading chart data...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Simple next collection status
+async function updateNextCollection() {
+    const textElement = document.getElementById('next-collection-text');
+    if (!textElement) return;
+    
+    try {
+        const response = await fetch('/api/next-poll');
+        const data = await response.json();
+        
+        if (data.monitoring_running && data.seconds_remaining > 0) {
+            const nextTime = data.next_collection_time;
+            textElement.textContent = `Next collection at ${nextTime} (in ${data.seconds_remaining}s)`;
+        } else if (data.monitoring_running) {
+            textElement.textContent = 'Monitoring active - waiting for next collection...';
+        } else {
+            textElement.textContent = 'Not collecting data - monitoring inactive';
+        }
+    } catch (error) {
+        textElement.textContent = 'Unable to get collection status';
+    }
+}
+
+// Update on page load and every 10 seconds
+document.addEventListener('DOMContentLoaded', function() {
+    updateNextCollection();
+    setInterval(updateNextCollection, 10000);
+});
+
+// Chart functionality
+let metricsChart = null;
+let chartRefreshInterval = null;
+
+// Auto-refresh functions
+function startChartRefresh() {
+    // Clear any existing interval
+    if (chartRefreshInterval) {
+        clearInterval(chartRefreshInterval);
+    }
+    
+    // Start refreshing every 15 seconds (matching table refresh)
+    chartRefreshInterval = setInterval(() => {
+        const graphContainer = document.getElementById('graph-view-container');
+        const allContainer = document.getElementById('all-charts-container');
+        
+        if (graphContainer.style.display === 'block') {
+            if (allContainer.style.display === 'block') {
+                // Refresh all pods charts data only (don't recreate)
+                console.log('Auto-refreshing all pods charts data...');
+                refreshAllPodsData();
+            } else {
+                // Refresh single pod chart
+                const podSelector = document.getElementById('pod-selector');
+                const timeRange = document.getElementById('time-range').value;
+                if (podSelector.value) {
+                    console.log(`Auto-refreshing chart for pod: ${podSelector.value}`);
+                    loadChartData(podSelector.value, timeRange);
+                }
+            }
+        }
+    }, 15000); // 15 seconds
+}
+
+function stopChartRefresh() {
+    if (chartRefreshInterval) {
+        clearInterval(chartRefreshInterval);
+        chartRefreshInterval = null;
+        console.log('Chart auto-refresh stopped');
+    }
+}
+
+// Toggle between table and graph view
+document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const tableContainer = document.getElementById('table-view-container');
+        const graphContainer = document.getElementById('graph-view-container');
+        
+        if (this.id === 'tableView') {
+            tableContainer.style.display = 'block';
+            graphContainer.style.display = 'none';
+            stopChartRefresh(); // Stop chart refresh when switching to table
+        } else {
+            tableContainer.style.display = 'none';
+            graphContainer.style.display = 'block';
+            loadPodOptions();
+            startChartRefresh(); // Start chart refresh when switching to graph
+        }
+    });
+});
+
+// Load available pods for graph selector
+async function loadPodOptions() {
+    console.log('Loading pod options...');
+    try {
+        const response = await fetch('/api/graph-pods');
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            console.error('Response not ok:', response.status, response.statusText);
+            return;
+        }
+        
+        const pods = await response.json();
+        console.log('Pods data:', pods);
+        
+        const selector = document.getElementById('pod-selector');
+        
+        selector.innerHTML = '<option value="">Select a pod to view graph...</option>';
+        
+        if (Array.isArray(pods) && pods.length > 0) {
+            pods.forEach(pod => {
+                const option = document.createElement('option');
+                option.value = pod.id;
+                option.textContent = `${pod.name} (${pod.id.substring(0, 8)}...)`;
+                selector.appendChild(option);
+                console.log('Added pod option:', pod.name);
+            });
+            
+            // Auto-select the first pod and load its chart
+            if (pods.length > 0) {
+                selector.value = pods[0].id;
+                const timeRange = document.getElementById('time-range').value;
+                console.log('Auto-selecting first pod:', pods[0].name);
+                loadChartData(pods[0].id, timeRange);
+            }
+        } else {
+            console.log('No pods available or invalid data format');
+            const option = document.createElement('option');
+            option.value = "";
+            option.textContent = "No pods with data available";
+            selector.appendChild(option);
+        }
+    } catch (error) {
+        console.error('Failed to load pods:', error);
+        const selector = document.getElementById('pod-selector');
+        const option = document.createElement('option');
+        option.value = "";
+        option.textContent = "Error loading pods";
+        selector.appendChild(option);
+    }
+}
+
+// Load chart data
+async function loadChartData(podId, timeRange, resolution = null) {
+    if (!podId) return;
+    
+    const loading = document.getElementById('chart-loading');
+    loading.style.display = 'block';
+    
+    // Get resolution from selector if not provided
+    if (!resolution) {
+        resolution = document.getElementById('data-resolution').value;
+    }
+    
+    try {
+        const response = await fetch(`/api/graph-data/${podId}?timeRange=${timeRange}&resolution=${resolution}`);
+        const data = await response.json();
+        
+        if (metricsChart) {
+            metricsChart.destroy();
+        }
+        
+        const ctx = document.getElementById('metricsChart').getContext('2d');
+        metricsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.timestamps,
+                datasets: [
+                    {
+                        label: 'CPU %',
+                        data: data.cpu,
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Memory %',
+                        data: data.memory,
+                        borderColor: '#28a745',
+                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                        tension: 0.4
+                    },
+                    {
+                        label: 'GPU %',
+                        data: data.gpu,
+                        borderColor: '#ffc107',
+                        backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        title: {
+                            display: true,
+                            text: 'Percentage (%)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `Metrics for ${data.podName}`
+                    },
+                    legend: {
+                        position: 'top'
+                    }
+                }
+            }
+        });
+        
+        loading.style.display = 'none';
+    } catch (error) {
+        console.error('Failed to load chart data:', error);
+        loading.style.display = 'none';
+    }
+}
+
+// Show all pods functionality
+let allPodsCharts = [];
+let allPodsData = []; // Store pod list for refresh
+
+async function showAllPods() {
+    console.log('Show All Pods button clicked');
+    
+    // Stop auto-refresh during chart creation to prevent conflicts
+    stopChartRefresh();
+    
+    // Also temporarily disable HTMX auto-refresh on the raw data table
+    const rawDataTable = document.getElementById('raw-data-table');
+    if (rawDataTable) {
+        rawDataTable.setAttribute('hx-trigger', 'none');
+    }
+    
+    const loading = document.getElementById('chart-loading');
+    const singleContainer = document.getElementById('single-chart-container');
+    const allContainer = document.getElementById('all-charts-container');
+    const timeRange = document.getElementById('time-range').value;
+    const resolution = document.getElementById('data-resolution').value;
+    
+    console.log('Elements found:', {
+        loading: !!loading,
+        singleContainer: !!singleContainer, 
+        allContainer: !!allContainer,
+        timeRange: timeRange
+    });
+    
+    loading.style.display = 'block';
+    singleContainer.style.display = 'none';
+    allContainer.style.display = 'block';
+    
+    try {
+        console.log('Fetching pods from /api/graph-pods...');
+        // Get all pods
+        const podsResponse = await fetch('/api/graph-pods');
+        console.log('Pods response status:', podsResponse.status);
+        const pods = await podsResponse.json();
+        console.log('Received pods:', pods);
+        
+        if (!Array.isArray(pods) || pods.length === 0) {
+            console.log('No pods available');
+            allContainer.innerHTML = '<p class="text-muted text-center">No pods with data available</p>';
+            loading.style.display = 'none';
+            return;
+        }
+        
+        // Store pods data for future refreshes
+        allPodsData = pods;
+        
+        // Destroy existing charts safely
+        console.log('Destroying existing charts:', allPodsCharts.length);
+        allPodsCharts.forEach(chart => {
+            try {
+                if (chart && typeof chart.destroy === 'function') {
+                    chart.destroy();
+                }
+            } catch (e) {
+                console.warn('Failed to destroy chart:', e);
+            }
+        });
+        allPodsCharts = [];
+        
+        // Destroy ALL Chart.js instances globally to prevent ID conflicts
+        try {
+            if (window.Chart && Chart.instances) {
+                console.log('Destroying all Chart.js instances:', Object.keys(Chart.instances).length);
+                Object.values(Chart.instances).forEach(chart => {
+                    try {
+                        if (chart && typeof chart.destroy === 'function') {
+                            chart.destroy();
+                        }
+                    } catch (e) {
+                        console.warn('Failed to destroy chart instance:', e);
+                    }
+                });
+                // Clear the instances registry
+                Chart.instances = {};
+            }
+        } catch (e) {
+            console.warn('Failed to clear Chart.js instances:', e);
+        }
+        
+        // Create container for all charts
+        allContainer.innerHTML = '';
+        console.log(`Creating charts for ${pods.length} pods`);
+        
+        // Load data for each pod and create charts
+        for (const pod of pods) {
+            console.log(`Processing pod: ${pod.name} (${pod.id})`);
+            // Create safe ID by replacing special characters
+            const safeId = pod.id.replace(/[^a-zA-Z0-9-_]/g, '_');
+            const chartDiv = document.createElement('div');
+            chartDiv.className = 'mb-4 border p-3';
+            chartDiv.innerHTML = `
+                <h6>${pod.name} <small class="text-muted">(${pod.id.substring(0, 8)}...)</small></h6>
+                <div style="height: 300px;">
+                    <canvas id="chart-${safeId}"></canvas>
+                </div>
+            `;
+            allContainer.appendChild(chartDiv);
+            
+            // Load chart data
+            console.log(`Fetching data for pod ${pod.id}...`);
+            const response = await fetch(`/api/graph-data/${pod.id}?timeRange=${timeRange}&resolution=${resolution}`);
+            console.log(`Data response status for ${pod.name}:`, response.status);
+            const data = await response.json();
+            console.log(`Data for ${pod.name}:`, data);
+            
+            if (data.error) {
+                console.error(`Error for pod ${pod.name}:`, data.error);
+                chartDiv.innerHTML = `
+                    <h6>${pod.name} <small class="text-muted">(${pod.id.substring(0, 8)}...)</small></h6>
+                    <div class="alert alert-warning">No data available for this pod</div>
+                `;
+                continue;
+            }
+            
+            // Check if canvas element exists and is in the DOM before trying to get context
+            const canvasElement = document.getElementById(`chart-${safeId}`);
+            if (!canvasElement) {
+                console.error(`Canvas element chart-${safeId} not found for pod ${pod.id}! Skipping chart creation.`);
+                continue;
+            }
+            
+            // Check if the canvas is actually in the DOM (not removed by scrolling/refresh)
+            if (!document.body.contains(canvasElement)) {
+                console.error(`Canvas element chart-${safeId} is not in the DOM for pod ${pod.id}! Skipping chart creation.`);
+                continue;
+            }
+            
+            const ctx = canvasElement.getContext('2d');
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.timestamps,
+                    datasets: [
+                        {
+                            label: 'CPU %',
+                            data: data.cpu,
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Memory %',
+                            data: data.memory,
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'GPU %',
+                            data: data.gpu,
+                            borderColor: '#ffc107',
+                            backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Percentage (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+            
+            allPodsCharts.push(chart);
+            console.log(`Chart created for ${pod.name}`);
+            
+            // Small delay to prevent overwhelming the browser
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        console.log(`All ${allPodsCharts.length} charts created successfully`);
+        loading.style.display = 'none';
+        
+        // Re-enable HTMX auto-refresh on the raw data table
+        const rawDataTable = document.getElementById('raw-data-table');
+        if (rawDataTable) {
+            rawDataTable.setAttribute('hx-trigger', 'load, every 15s');
+        }
+        
+        // Restart auto-refresh now that charts are created
+        startChartRefresh();
+    } catch (error) {
+        console.error('Failed to load all pods charts:', error);
+        allContainer.innerHTML = `<p class="text-danger text-center">Error loading charts: ${error.message}</p>`;
+        loading.style.display = 'none';
+        
+        // Re-enable HTMX auto-refresh even on error
+        const rawDataTable = document.getElementById('raw-data-table');
+        if (rawDataTable) {
+            rawDataTable.setAttribute('hx-trigger', 'load, every 15s');
+        }
+        
+        // Restart auto-refresh even on error
+        startChartRefresh();
+    }
+}
+
+// Refresh existing charts with new data (don't recreate)
+async function refreshAllPodsData() {
+    if (!allPodsData || allPodsData.length === 0 || allPodsCharts.length === 0) {
+        console.log('No pods data or charts to refresh');
+        return;
+    }
+    
+    const timeRange = document.getElementById('time-range').value;
+    const resolution = document.getElementById('data-resolution').value;
+    console.log(`Refreshing data for ${allPodsCharts.length} charts with resolution: ${resolution}`);
+    
+    try {
+        // Update each existing chart with new data
+        for (let i = 0; i < allPodsData.length && i < allPodsCharts.length; i++) {
+            const pod = allPodsData[i];
+            const chart = allPodsCharts[i];
+            
+            if (!chart || typeof chart.update !== 'function') {
+                console.warn(`Chart ${i} for pod ${pod.name} is invalid, skipping`);
+                continue;
+            }
+            
+            try {
+                // Fetch new data
+                const response = await fetch(`/api/graph-data/${pod.id}?timeRange=${timeRange}&resolution=${resolution}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.warn(`No data for pod ${pod.name}, skipping update`);
+                    continue;
+                }
+                
+                // Update chart data
+                chart.data.labels = data.timestamps;
+                chart.data.datasets[0].data = data.cpu;
+                chart.data.datasets[1].data = data.memory;
+                chart.data.datasets[2].data = data.gpu;
+                
+                // Update the chart
+                chart.update('none'); // 'none' = no animation for faster updates
+                
+            } catch (error) {
+                console.warn(`Failed to update chart for pod ${pod.name}:`, error);
+            }
+        }
+        
+        console.log('All charts data refreshed successfully');
+    } catch (error) {
+        console.error('Failed to refresh charts data:', error);
+    }
+}
+
+function showSingleChart() {
+    const singleContainer = document.getElementById('single-chart-container');
+    const allContainer = document.getElementById('all-charts-container');
+    
+    singleContainer.style.display = 'block';
+    allContainer.style.display = 'none';
+    
+    // Destroy all pods charts to free memory
+    allPodsCharts.forEach(chart => chart.destroy());
+    allPodsCharts = [];
+}
+
+// Event listeners for graph controls
+document.getElementById('pod-selector').addEventListener('change', function() {
+    if (this.value) {
+        showSingleChart();
+        const timeRange = document.getElementById('time-range').value;
+        loadChartData(this.value, timeRange);
+        // Ensure auto-refresh is active for single chart
+        const graphView = document.getElementById('graphView');
+        if (graphView.checked) {
+            startChartRefresh();
+        }
+    }
+});
+
+document.getElementById('time-range').addEventListener('change', function() {
+    const podId = document.getElementById('pod-selector').value;
+    const allContainer = document.getElementById('all-charts-container');
+    
+    if (allContainer.style.display === 'block') {
+        // If showing all pods, reload all charts with new time range
+        showAllPods();
+    } else if (podId) {
+        // If showing single pod, reload single chart
+        loadChartData(podId, this.value);
+    }
+});
+
+// Data resolution change
+document.getElementById('data-resolution').addEventListener('change', function() {
+    const podId = document.getElementById('pod-selector').value;
+    const timeRange = document.getElementById('time-range').value;
+    const allContainer = document.getElementById('all-charts-container');
+    
+    if (allContainer.style.display === 'block') {
+        // If showing all pods, reload all charts with new resolution
+        showAllPods();
+    } else if (podId) {
+        // If showing single pod, reload single chart with new resolution
+        loadChartData(podId, timeRange, this.value);
+    }
+});
+
+// Add event listener for Show All Pods button
+document.addEventListener('DOMContentLoaded', function() {
+    const showAllButton = document.getElementById('show-all-pods');
+    console.log('Show All Pods button found:', !!showAllButton);
+    
+    if (showAllButton) {
+        showAllButton.addEventListener('click', function() {
+            console.log('Show All Pods button clicked');
+            // Clear single pod selection
+            document.getElementById('pod-selector').value = '';
+            showAllPods();
+            // Ensure auto-refresh is active for all pods view
+            startChartRefresh();
+        });
+    } else {
+        console.error('Show All Pods button not found!');
+    }
+});
+
+// Export functionality - Downloads a ZIP backup of the entire data folder
+function exportData() {
+    // Simple export - just download the ZIP backup
+    const exportUrl = '/api/export';
+    
+    // Show loading state
+    const exportBtn = document.querySelector('button[onclick="exportData()"]');
+    const originalText = exportBtn.innerHTML;
+    
+    exportBtn.innerHTML = '⏳ Creating backup...';
+    exportBtn.disabled = true;
+    
+    // Create temporary link to download file
+    const link = document.createElement('a');
+    link.href = exportUrl;
+    link.download = true;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Reset button after delay
+    setTimeout(() => {
+        exportBtn.innerHTML = originalText;
+        exportBtn.disabled = false;
+    }, 2000);
+}
+
+// Initialize filter dropdowns
+async function initializeFilters() {
+    try {
+        const response = await fetch('/api/graph-pods');
+        const pods = await response.json();
+        
+        const podFilterSelect = document.getElementById('pod-filter-select');
+        
+        // Clear existing options except "All Pods"
+        podFilterSelect.innerHTML = '<option value="">All Pods</option>';
+        
+        if (Array.isArray(pods) && pods.length > 0) {
+            pods.forEach(pod => {
+                const option = document.createElement('option');
+                option.value = pod.id;
+                option.textContent = `${pod.name} (${pod.id.substring(0, 8)}...)`;
+                podFilterSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load pod filter options:', error);
+    }
+}
+
+// Add event listeners for filters
+document.addEventListener('DOMContentLoaded', function() {
+    initializeFilters();
+    
+    // Update table view when filters change
+    const timeFilterSelect = document.getElementById('time-filter-select');
+    const podFilterSelect = document.getElementById('pod-filter-select');
+    
+    function updateTableView() {
+        const tableContainer = document.getElementById('raw-data-table');
+        const timeFilter = timeFilterSelect.value;
+        const podFilter = podFilterSelect.value;
+        
+        let url = '/api/raw-data';
+        const params = [];
+        
+        if (podFilter) {
+            params.push(`pod_filter=${encodeURIComponent(podFilter)}`);
+        }
+        
+        if (timeFilter !== 'all') {
+            params.push(`duration=${timeFilter}`);
+        }
+        
+        if (params.length > 0) {
+            url += '?' + params.join('&');
+        }
+        
+        // Update table with filtered data
+        tableContainer.innerHTML = '<p>Loading filtered data...</p>';
+        fetch(url)
+            .then(response => response.text())
+            .then(html => {
+                tableContainer.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Failed to load filtered data:', error);
+                tableContainer.innerHTML = '<p class="text-danger">Error loading data</p>';
+            });
+    }
+    
+    timeFilterSelect.addEventListener('change', updateTableView);
+    podFilterSelect.addEventListener('change', updateTableView);
+    
+    // Simple table refresh - HTMX handles this automatically now
+});
+</script>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
