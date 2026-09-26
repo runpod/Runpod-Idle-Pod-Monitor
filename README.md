@@ -1,8 +1,8 @@
-# 🚀 RunPod Monitor
+# 🚀 Runpod Monitor
 
-Monitor and auto-manage your RunPod instances with a simple web interface.
+Monitor and auto-manage your Runpod instances with a simple web interface.
 
-![RunPod Monitor Demo](ppt/runpod-monitor-demo-small.gif)
+![Runpod Monitor Demo](ppt/runpod-monitor-demo-small.gif)
 
 ## Version
 1.0: JSON based file
@@ -21,7 +21,7 @@ For a portable version where the pod monitors itself (rather than organization-l
 
 ### Quick Start - One Line Installation
 
-Inside your RunPod pod terminal, run:
+Inside your Runpod pod terminal, run:
 
 ```bash
 apt-get update && apt-get install -y tmux curl && curl -sSL https://raw.githubusercontent.com/justinwlin/Runpod-Idle-Pod-Monitor/refs/heads/main/self-contained/quick_install.sh -o /tmp/quick_install.sh && chmod +x /tmp/quick_install.sh && /tmp/quick_install.sh
@@ -71,7 +71,7 @@ docker.io/justinrunpod/runpodidlemonitor:5
 
 ## ⚡ Quick Start
 
-### 🏃‍♂️ Running on RunPod (Recommended)
+### 🏃‍♂️ Running on Runpod (Recommended)
 Just click the Runpod image template, and start it on the lowest CPU pod.
 
 **That's it!** 🎉 The `RUNPOD_API_KEY` environment variable is pre-configured.
@@ -137,7 +137,7 @@ The server starts with sensible defaults. To customize:
 
 ### Options:
 2. **Use the web interface** - Go to Config page for real-time changes. The changes get persisted to the file on the server, so you can turn the server on and off, as long the file is not destroyed.
-3. **Environment variables** - `RUNPOD_API_KEY` is auto-configured on RunPod when you start a container is already in the env. But you can also set it manually locally by creating a .env file with the key.
+3. **Environment variables** - `RUNPOD_API_KEY` is auto-configured on Runpod when you start a container is already in the env. But you can also set it manually locally by creating a .env file with the key.
 
 ### Recommendations:
 Just use the Web UI for configurations since it will autopersist into whatever file, and will create a starting configuration file if it doesn't exist based off the yaml template.
